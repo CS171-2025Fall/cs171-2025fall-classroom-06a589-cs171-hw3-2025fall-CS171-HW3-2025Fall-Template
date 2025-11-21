@@ -54,15 +54,17 @@ void IntersectionTestIntegrator::render(ref<Camera> camera, ref<Scene> scene) {
         // const Vec2f &pixel_sample = ...
         // auto ray = ...
 
+        const Vec2f &pixel_sample = sampler.getPixelSample();
+        auto ray = camera->generateDifferentialRay(pixel_sample.x, pixel_sample.y);
         // After you assign pixel_sample and ray, you can uncomment the
         // following lines to accumulate the radiance to the film.
         //
         //
         // Accumulate radiance
-        // assert(pixel_sample.x >= dx && pixel_sample.x <= dx + 1);
-        // assert(pixel_sample.y >= dy && pixel_sample.y <= dy + 1);
-        // const Vec3f &L = Li(scene, ray, sampler);
-        // camera->getFilm()->commitSample(pixel_sample, L);
+        assert(pixel_sample.x >= dx && pixel_sample.x <= dx + 1);
+        assert(pixel_sample.y >= dy && pixel_sample.y <= dy + 1);
+        const Vec3f &L = Li(scene, ray, sampler);
+        camera->getFilm()->commitSample(pixel_sample, L);
       }
     }
   }
@@ -70,53 +72,68 @@ void IntersectionTestIntegrator::render(ref<Camera> camera, ref<Scene> scene) {
 
 Vec3f IntersectionTestIntegrator::Li(
     ref<Scene> scene, DifferentialRay &ray, Sampler &sampler) const {
-  Vec3f color(0.0);
+    Vec3f color(0.0);
 
-  // Cast a ray until we hit a non-specular surface or miss
-  // Record whether we have found a diffuse surface
-  bool diffuse_found = false;
-  SurfaceInteraction interaction;
+    // Cast a ray until we hit a non-specular surface or miss
+    // Record whether we have found a diffuse surface
+    bool diffuse_found = false;
+    SurfaceInteraction interaction;
 
-  for (int i = 0; i < max_depth; ++i) {
-    interaction      = SurfaceInteraction();
-    bool intersected = scene->intersect(ray, interaction);
+    for (int i = 0; i < max_depth; ++i) {
+        interaction = SurfaceInteraction();
+        bool intersected = scene->intersect(ray, interaction);
+        // Info_("Iter %d: Intersection found at p = %s", i, interaction.p);
+        // if (interaction.bsdf == nullptr) {
+        //     Info_("  -> CRITICAL ERROR: BSDF pointer is NULL!");
+        // } //else {
+        //     Info_("  -> BSDF pointer is valid.");
+        //     if (dynamic_cast<const IdealDiffusion *>(interaction.bsdf)) {
+        //         Info_("  -> Material is IdealDiffusion.");
+        //     } else if (dynamic_cast<const PerfectRefraction
+        //     *>(interaction.bsdf)) {
+        //         Info_("  -> Material is PerfectRefraction.");
+        //     } else {
+        //         Info_("  -> Material is of an UNKNOWN type!");
+        //     }
+        // }
+        // Perform RTTI to determine the type of the surface
+        bool is_ideal_diffuse =
+            dynamic_cast<const IdealDiffusion*>(interaction.bsdf) != nullptr;
+        bool is_perfect_refraction =
+            dynamic_cast<const PerfectRefraction*>(interaction.bsdf) != nullptr;
 
-    // Perform RTTI to determine the type of the surface
-    bool is_ideal_diffuse =
-        dynamic_cast<const IdealDiffusion *>(interaction.bsdf) != nullptr;
-    bool is_perfect_refraction =
-        dynamic_cast<const PerfectRefraction *>(interaction.bsdf) != nullptr;
+        // Set the outgoing direction
+        interaction.wo = -ray.direction;
 
-    // Set the outgoing direction
-    interaction.wo = -ray.direction;
+        if (!intersected) {
+            break;
+        }
 
-    if (!intersected) {
-      break;
+        if (is_perfect_refraction) {
+            // We should follow the specular direction
+            // TODO(HW3): call the interaction.bsdf->sample to get the new
+            // direction and update the ray accordingly.
+            //
+            // Useful Functions:
+            // @see BSDF::sample
+            // @see SurfaceInteraction::spawnRay
+            //
+            // You should update ray = ... with the spawned ray
+            Float pdf;
+            interaction.bsdf->sample(interaction, sampler, &pdf);
+            ray = interaction.spawnRay(interaction.wi);
+            continue;
+        }
+
+        if (is_ideal_diffuse) {
+            // We only consider diffuse surfaces for direct lighting
+            diffuse_found = true;
+            break;
+        }
+
+        // We simply omit any other types of surfaces
+        break;
     }
-
-    if (is_perfect_refraction) {
-      // We should follow the specular direction
-      // TODO(HW3): call the interaction.bsdf->sample to get the new direction
-      // and update the ray accordingly.
-      //
-      // Useful Functions:
-      // @see BSDF::sample
-      // @see SurfaceInteraction::spawnRay
-      //
-      // You should update ray = ... with the spawned ray
-      UNIMPLEMENTED;
-      continue;
-    }
-
-    if (is_ideal_diffuse) {
-      // We only consider diffuse surfaces for direct lighting
-      diffuse_found = true;
-      break;
-    }
-
-    // We simply omit any other types of surfaces
-    break;
-  }
 
   if (!diffuse_found) {
     return color;
@@ -131,7 +148,7 @@ Vec3f IntersectionTestIntegrator::directLighting(
   Vec3f color(0, 0, 0);
   Float dist_to_light = Norm(point_light_position - interaction.p);
   Vec3f light_dir     = Normalize(point_light_position - interaction.p);
-  auto test_ray       = DifferentialRay(interaction.p, light_dir);
+  auto test_ray       = DifferentialRay(interaction.p, light_dir, RAY_DEFAULT_MIN, dist_to_light);
 
   // TODO(HW3): Test for occlusion
   //
@@ -148,7 +165,9 @@ Vec3f IntersectionTestIntegrator::directLighting(
   //
   //    You can use iteraction.p to get the intersection position.
   //
-  UNIMPLEMENTED;
+  if (scene->isBlocked(test_ray, interaction) && (Norm(interaction.p - test_ray.origin) < dist_to_light)) {
+    return Vec3f(0.0f, 0.0f, 0.0f);
+  }
 
   // Not occluded, compute the contribution using perfect diffuse diffuse model
   // Perform a quick and dirty check to determine whether the BSDF is ideal
@@ -167,10 +186,13 @@ Vec3f IntersectionTestIntegrator::directLighting(
     // The angle between light direction and surface normal
     Float cos_theta =
         std::max(Dot(light_dir, interaction.normal), 0.0f);  // one-sided
+    // Float cos_theta = std::abs(Dot(light_dir, interaction.normal));
 
     // You should assign the value to color
     // color = ...
-    UNIMPLEMENTED;
+    // color = bsdf->evaluate(interaction) * cos_theta;
+    auto albedo = bsdf->evaluate(interaction) * cos_theta;
+    color = albedo * point_light_flux  / (4 * PI * dist_to_light * dist_to_light);
   }
 
   return color;

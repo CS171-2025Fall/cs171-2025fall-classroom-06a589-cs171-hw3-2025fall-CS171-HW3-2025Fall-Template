@@ -6,6 +6,8 @@
 #include "rdr/light.h"
 #include "rdr/shape.h"
 
+#include<iostream>
+
 RDR_NAMESPACE_BEGIN
 
 Primitive::Primitive(const Properties &props) : ConfigurableObject(props) {
@@ -19,6 +21,19 @@ Primitive::Primitive(const Properties &props) : ConfigurableObject(props) {
 }
 
 void Primitive::crossConfiguration(const CrossConfigurationContext &context) {
+  std::cout << "--- Cross-configuring a Primitive ---" << std::endl;
+
+  if (properties.hasProperty("path")) {
+      std::cout << "  -> Path: " << properties.getProperty<std::string>("path") << std::endl;
+  } else {
+      std::cout << "  -> Path property not found." << std::endl;
+  }
+
+  if (properties.hasProperty("material_name")) {
+      std::cout << "  -> Material Name: " << properties.getProperty<std::string>("material_name") << std::endl;
+  } else {
+      std::cout << "  -> CRITICAL: material_name property NOT FOUND!" << std::endl;
+  }
   if (properties.hasProperty("material_name")) {
     auto material_name = properties.getProperty<std::string>("material_name");
     auto material_ptr  = context.materials.find(material_name);
