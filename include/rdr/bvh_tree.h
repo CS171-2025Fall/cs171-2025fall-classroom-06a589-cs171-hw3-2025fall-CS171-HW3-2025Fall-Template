@@ -143,9 +143,9 @@ typename BVHTree<_>::IndexType BVHTree<_>::build(
   // @see span_left: The left index of the current span
   // @see span_right: The right index of the current span
   //
-  /* if ( */ UNIMPLEMENTED; /* ) */
+  IndexType num_nodes = span_right - span_left;
+  if (num_nodes <= 4 || depth >= CUTOFF_DEPTH)
   {
-    // create leaf node
     const auto &node = nodes[span_left];
     InternalNode result(span_left, span_right);
     result.is_leaf = true;
@@ -181,7 +181,18 @@ use_median_heuristic:
     //
     // You may find `std::nth_element` useful here.
 
-    UNIMPLEMENTED;
+    std::nth_element(
+        nodes.begin() + span_left,
+        nodes.begin() + split,
+        nodes.begin() + span_right,
+        [&](const NodeType& a, const NodeType& b) {
+            AABB a_aabb = a.getAABB();
+            AABB b_aabb = b.getAABB();
+            Float a_centroid_dim = a_aabb.low_bnd[dim] + a_aabb.upper_bnd[dim];
+            Float b_centroid_dim = b_aabb.low_bnd[dim] + b_aabb.upper_bnd[dim];
+            return a_centroid_dim < b_centroid_dim;
+        }
+    );
 
     // clang-format on
   } else if (hprofile == EHeuristicProfile::ESurfaceAreaHeuristic) {
@@ -200,6 +211,7 @@ use_surface_area_heuristic:
     // You can then set @see BVHTree::hprofile to ESurfaceAreaHeuristic to
     // enable this feature.
     UNIMPLEMENTED;
+    goto use_median_heuristic;
   }
 
   // Build the left and right subtree

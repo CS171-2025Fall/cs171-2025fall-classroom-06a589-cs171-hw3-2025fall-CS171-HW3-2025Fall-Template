@@ -43,7 +43,25 @@ bool AABB::intersect(const Ray &ray, Float *t_in, Float *t_out) const {
   //    for getting the inverse direction of the ray.
   // @see Min/Max/ReduceMin/ReduceMax
   //    for vector min/max operations.
-  UNIMPLEMENTED;
+  Vec3f inv_dir = ray.safe_inverse_direction;
+
+  Vec3f t_near_vec = (this->low_bnd - ray.origin) * inv_dir;
+  Vec3f t_far_vec  = (this->upper_bnd - ray.origin) * inv_dir;
+
+  Vec3f t1 = Min(t_near_vec, t_far_vec);
+  Vec3f t2 = Max(t_near_vec, t_far_vec);
+
+  Float t_enter = ReduceMax(t1);
+
+  Float t_exit = ReduceMin(t2);
+
+  if (t_enter < t_exit && t_exit > 0) {
+    if (t_in) *t_in = t_enter;
+    if (t_out) *t_out = t_exit;
+    return true;
+  }
+
+  return false;
 }
 
 /* ===================================================================== *
@@ -92,21 +110,46 @@ bool TriangleIntersect(Ray &ray, const uint32_t &triangle_index,
   // You can use @see Cross and @see Dot for determinant calculations.
 
   // Delete the following lines after you implement the function
-  InternalScalarType u = InternalScalarType(0);
-  InternalScalarType v = InternalScalarType(0);
-  InternalScalarType t = InternalScalarType(0);
-  UNIMPLEMENTED;
+  InternalVecType origin = Cast<InternalScalarType>(ray.origin);
+  InternalVecType E1 = v1 - v0;
+  InternalVecType E2 = v2 - v0;
 
-  // We will reach here if there is an intersection
+  InternalVecType P = Cross(dir, E2);
+  InternalScalarType det = Dot(E1, P);
 
-  CalculateTriangleDifferentials(interaction,
-      {static_cast<Float>(1 - u - v), static_cast<Float>(u),
-          static_cast<Float>(v)},
-      mesh, triangle_index);
-  AssertNear(interaction.p, ray(t));
-  assert(ray.withinTimeRange(t));
-  ray.setTimeMax(t);
-  return true;
+  constexpr InternalScalarType epsilon = std::numeric_limits<InternalScalarType>::epsilon();
+  if (det > -epsilon && det < epsilon) {
+      return false;
+  }
+
+  InternalScalarType inv_det = InternalScalarType(1.0) / det;
+  InternalVecType T = origin - v0;
+
+  InternalScalarType u = Dot(T, P) * inv_det;
+  if (u < 0.0 || u > 1.0) {
+      return false;
+  }
+
+  InternalVecType Q = Cross(T, E1);
+  InternalScalarType v = Dot(dir, Q) * inv_det;
+  if (v < 0.0 || u + v > 1.0) {
+      return false;
+  }
+
+  InternalScalarType t = Dot(E2, Q) * inv_det;
+
+  if (ray.withinTimeRange(t)) {
+      CalculateTriangleDifferentials(interaction,
+          {static_cast<Float>(1 - u - v), static_cast<Float>(u),
+              static_cast<Float>(v)},
+          mesh, triangle_index);
+      AssertNear(interaction.p, ray(t));
+      assert(ray.withinTimeRange(t));
+      ray.setTimeMax(t);
+      return true;
+  }
+
+  return false;
 }
 
 void Accel::setTriangleMesh(const ref<TriangleMeshResource> &mesh) {

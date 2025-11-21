@@ -20,7 +20,9 @@ public:
   Primitive(const Properties &props);
   void crossConfiguration(const CrossConfigurationContext &context) override;
   // --
-
+  void setBSDF(const ref<BSDF>& new_bsdf) {
+    bsdf = new_bsdf;
+  }
   /// Different initialization scehemes
   ~Primitive() override = default;
 

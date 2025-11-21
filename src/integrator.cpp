@@ -30,7 +30,7 @@ void IntersectionTestIntegrator::render(ref<Camera> camera, ref<Scene> scene) {
   std::atomic<int> cnt = 0;
 
   const Vec2i &resolution = camera->getFilm()->getResolution();
-#pragma omp parallel for schedule(dynamic)
+// #pragma omp parallel for schedule(dynamic)
   for (int dx = 0; dx < resolution.x; dx++) {
     ++cnt;
     if (cnt % (resolution.x / 10) == 0)
@@ -39,6 +39,14 @@ void IntersectionTestIntegrator::render(ref<Camera> camera, ref<Scene> scene) {
     for (int dy = 0; dy < resolution.y; dy++) {
       sampler.setPixelIndex2D(Vec2i(dx, dy));
       for (int sample = 0; sample < spp; sample++) {
+        // BEGIN: DEBUG
+
+        if (dx != 20 || dy != 10) {
+            continue;
+        }
+
+        // END: DEBUG
+
         // TODO(HW3): generate #spp rays for each pixel and use Monte Carlo
         // integration to compute radiance.
         //
@@ -54,15 +62,17 @@ void IntersectionTestIntegrator::render(ref<Camera> camera, ref<Scene> scene) {
         // const Vec2f &pixel_sample = ...
         // auto ray = ...
 
+        const Vec2f &pixel_sample = sampler.getPixelSample();
+        auto ray = camera->generateDifferentialRay(pixel_sample.x, pixel_sample.y);
         // After you assign pixel_sample and ray, you can uncomment the
         // following lines to accumulate the radiance to the film.
         //
         //
         // Accumulate radiance
-        // assert(pixel_sample.x >= dx && pixel_sample.x <= dx + 1);
-        // assert(pixel_sample.y >= dy && pixel_sample.y <= dy + 1);
-        // const Vec3f &L = Li(scene, ray, sampler);
-        // camera->getFilm()->commitSample(pixel_sample, L);
+        assert(pixel_sample.x >= dx && pixel_sample.x <= dx + 1);
+        assert(pixel_sample.y >= dy && pixel_sample.y <= dy + 1);
+        const Vec3f &L = Li(scene, ray, sampler);
+        camera->getFilm()->commitSample(pixel_sample, L);
       }
     }
   }
@@ -80,7 +90,19 @@ Vec3f IntersectionTestIntegrator::Li(
   for (int i = 0; i < max_depth; ++i) {
     interaction      = SurfaceInteraction();
     bool intersected = scene->intersect(ray, interaction);
-
+    // Info_("Iter %d: Intersection found at p = %s", i, interaction.p);
+    // if (interaction.bsdf == nullptr) {
+    //     Info_("  -> CRITICAL ERROR: BSDF pointer is NULL!");
+    // } //else {
+    //     Info_("  -> BSDF pointer is valid.");
+    //     if (dynamic_cast<const IdealDiffusion *>(interaction.bsdf)) {
+    //         Info_("  -> Material is IdealDiffusion.");
+    //     } else if (dynamic_cast<const PerfectRefraction *>(interaction.bsdf)) {
+    //         Info_("  -> Material is PerfectRefraction.");
+    //     } else {
+    //         Info_("  -> Material is of an UNKNOWN type!");
+    //     }
+    // }
     // Perform RTTI to determine the type of the surface
     bool is_ideal_diffuse =
         dynamic_cast<const IdealDiffusion *>(interaction.bsdf) != nullptr;
@@ -94,6 +116,8 @@ Vec3f IntersectionTestIntegrator::Li(
       break;
     }
 
+    return Vec3f(1.0F);
+
     if (is_perfect_refraction) {
       // We should follow the specular direction
       // TODO(HW3): call the interaction.bsdf->sample to get the new direction
@@ -104,7 +128,9 @@ Vec3f IntersectionTestIntegrator::Li(
       // @see SurfaceInteraction::spawnRay
       //
       // You should update ray = ... with the spawned ray
-      UNIMPLEMENTED;
+      Float pdf;
+      interaction.bsdf->sample(interaction, sampler, &pdf);
+      ray = interaction.spawnRay(interaction.wi);
       continue;
     }
 
@@ -131,7 +157,7 @@ Vec3f IntersectionTestIntegrator::directLighting(
   Vec3f color(0, 0, 0);
   Float dist_to_light = Norm(point_light_position - interaction.p);
   Vec3f light_dir     = Normalize(point_light_position - interaction.p);
-  auto test_ray       = DifferentialRay(interaction.p, light_dir);
+  auto test_ray       = DifferentialRay(interaction.p, light_dir, RAY_DEFAULT_MIN, dist_to_light);
 
   // TODO(HW3): Test for occlusion
   //
@@ -148,7 +174,9 @@ Vec3f IntersectionTestIntegrator::directLighting(
   //
   //    You can use iteraction.p to get the intersection position.
   //
-  UNIMPLEMENTED;
+  if (scene->isBlocked(test_ray, interaction) && (Norm(interaction.p - test_ray.origin) < dist_to_light)) {
+    return Vec3f(0.0f, 0.0f, 0.0f);
+  }
 
   // Not occluded, compute the contribution using perfect diffuse diffuse model
   // Perform a quick and dirty check to determine whether the BSDF is ideal
@@ -167,10 +195,13 @@ Vec3f IntersectionTestIntegrator::directLighting(
     // The angle between light direction and surface normal
     Float cos_theta =
         std::max(Dot(light_dir, interaction.normal), 0.0f);  // one-sided
+    // Float cos_theta = std::abs(Dot(light_dir, interaction.normal));
 
     // You should assign the value to color
     // color = ...
-    UNIMPLEMENTED;
+    // color = bsdf->evaluate(interaction) * cos_theta;
+    auto albedo = bsdf->evaluate(interaction) * cos_theta;
+    color = albedo * point_light_flux  / (4 * PI * dist_to_light * dist_to_light);
   }
 
   return color;
